@@ -1,0 +1,475 @@
+diff --git a/Dockerfile b/Dockerfile
+index 8f1ba85..c7131bf 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -111,13 +111,13 @@ RUN useradd -u 1000 -m -s /bin/bash appuser && \
+ USER appuser
+ 
+ # 暴露端口
+-EXPOSE 8000 3000
++EXPOSE 8001 3000
+ 
+ # 创建启动脚本
+ RUN echo '#!/bin/bash\n\
+ # 启动后端 FastAPI 服务\n\
+ cd /app\n\
+-uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8000 &\n\
++uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8001 &\n\
+ \n\
+ # 启动前端服务\n\
+ cd /app/frontend/ui\n\
+diff --git a/README.md b/README.md
+index 22d4e88..d5ec9c6 100644
+--- a/README.md
++++ b/README.md
+@@ -114,7 +114,7 @@ The modern React-based web interface provides an intuitive platform for processi
+ From the project root directory, run:
+ 
+ ```bash
+-uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8000 --reload
++uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8001 --reload
+ ```
+ 
+ **Step 2: Start the Frontend Development Server**
+@@ -129,7 +129,7 @@ NODE_OPTIONS="--max-old-space-size=8196" npm run dev
+ 
+ **Step 3: Access the Interface**
+ 
+-Open `http://localhost:5173` in your web browser to access the interface. The backend API will be available at `http://localhost:8000`.
++Open `http://localhost:5173` in your web browser to access the interface. The backend API will be available at `http://localhost:8001`.
+ 
+ 
+ #### Web Interface Features
+@@ -217,7 +217,7 @@ Run this command to start both the React frontend and FastAPI backend services.
+ ```bash
+ # Use all GPUs
+ docker run --rm -d --gpus all \
+-    -p 3000:3000 -p 8000:8000 \
++    -p 3000:3000 -p 8001:8001 \
+     -e http_proxy="" \
+     -e https_proxy="" \
+     -v $(pwd)/data:/app/data \
+@@ -227,7 +227,7 @@ docker run --rm -d --gpus all \
+ 
+ # Or specify a particular GPU (e.g., GPU 1) if you have multiple GPUs
+ docker run --rm -d --gpus '"device=1"' \
+-    -p 3000:3000 -p 8000:8000 \
++    -p 3000:3000 -p 8001:8001 \
+     -e http_proxy="" \
+     -e https_proxy="" \
+     -v $(pwd)/data:/app/data \
+@@ -238,7 +238,7 @@ docker run --rm -d --gpus '"device=1"' \
+ 
+ After launching, access the UI by visiting:
+ - Frontend: `http://localhost:3000`
+-- Backend API: `http://localhost:8000`
++- Backend API: `http://localhost:8001`
+ 
+ **Option B: Run the Command-Line Pipeline**
+ 
+diff --git a/README_zh.md b/README_zh.md
+index f2eba25..55bbcc8 100644
+--- a/README_zh.md
++++ b/README_zh.md
+@@ -115,7 +115,7 @@ BioChemInsight 可以通过交互式网页界面或直接从命令行操作。
+ 在项目根目录下运行：
+ 
+ ```bash
+-uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8000 --reload
++uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8001 --reload
+ ```
+ 
+ **步骤 2: 启动前端开发服务器**
+@@ -130,7 +130,7 @@ NODE_OPTIONS="--max-old-space-size=8196" npm run dev
+ 
+ **步骤 3: 访问界面**
+ 
+-在网页浏览器中打开 `http://localhost:5173` 访问界面。后端 API 地址为 `http://localhost:8000`。
++在网页浏览器中打开 `http://localhost:5173` 访问界面。后端 API 地址为 `http://localhost:8001`。
+ 
+ 
+ #### 网页界面功能
+@@ -226,7 +226,7 @@ docker build -t biocheminsight .
+ 
+ ```bash
+ docker run --rm -d --gpus all \
+-    -p 3000:3000 -p 8000:8000 \
++    -p 3000:3000 -p 8001:8001 \
+     -e http_proxy="" \
+     -e https_proxy="" \
+     -v $(pwd)/data:/app/data \
+@@ -237,7 +237,7 @@ docker run --rm -d --gpus all \
+ 
+ 启动后，访问：
+ - 前端界面：`http://localhost:3000`
+-- 后端 API：`http://localhost:8000`
++- 后端 API：`http://localhost:8001`
+ 
+ **选项 B: 运行命令行流程**
+ 
+diff --git a/activity_parser.py b/activity_parser.py
+index 36225ad..7bf5d00 100644
+--- a/activity_parser.py
++++ b/activity_parser.py
+@@ -5,7 +5,7 @@ from typing import Optional
+ import requests
+ 
+ from utils.pdf_utils import dots_ocr
+-from utils.llm_utils import content_to_dict, configure_genai
++from utils.llm_utils import content_to_dict, content_to_assay_metadata, configure_genai
+ from utils.file_utils import write_json_file, read_text_file
+ # from constants import GEMINI_API_KEY, GEMINI_MODEL_NAME
+ 
+@@ -135,6 +135,8 @@ def extract_activity_data(
+     report_progress(0, total_pages, f"📊 Dividing {total_pages} pages into {len(chunks)} processing chunks")
+     print(f"Total {len(chunks)} chunks to process.")
+         
++    unlinked_assay_dict = {}
++
+     # 针对每个 chunk 调用 content_to_dict 进行提取
+     for idx, chunk in enumerate(chunks, 1):
+         processed_pages = min(total_pages, idx * pages_per_chunk)
+@@ -147,12 +149,46 @@ def extract_activity_data(
+         else:
+             print(f"Warning: Chunk {idx} returned empty results.")
+ 
++        # Preserve assay rows even when they do not match the structures found
++        # on the selected structure pages. This keeps SAR tables auditable.
++        try:
++            chunk_unlinked_dict = content_to_dict(
++                chunk,
++                assay_name,
++                compound_id_list=None,
++                allow_unlisted=True,
++            )
++            if chunk_unlinked_dict:
++                unlinked_assay_dict.update(chunk_unlinked_dict)
++        except Exception as exc:
++            print(f"Warning: Chunk {idx} unlinked extraction failed: {exc}")
++
+     print(f"Extracted total assay data entries: {len(assay_dict)}")
++    print(f"Extracted total unlinked assay observations: {len(unlinked_assay_dict)}")
++
++    # Assay-level metadata is useful for downstream SAR datasets. It is
++    # best-effort: extraction failure must not invalidate value extraction.
++    assay_metadata = {}
++    try:
++        assay_metadata = content_to_assay_metadata("\n\n".join(chunks), assay_name)
++        if isinstance(assay_metadata, dict):
++            assay_metadata.setdefault("assay_name", assay_name)
++            assay_metadata.setdefault("source_pages", list(range(assay_page_start, assay_page_end + 1)))
++        else:
++            assay_metadata = {}
++    except Exception as exc:
++        print(f"Warning: assay metadata extraction failed: {exc}")
+ 
+     # 保存提取结果至 JSON 文件
+     output_json = f'{output_dir}/assay_data.json'
+     print(f"Saving assay data to {output_json}")
+     write_json_file(output_json, assay_dict)
++    unlinked_json = f'{output_dir}/assay_unlinked_data.json'
++    print(f"Saving unlinked assay observations to {unlinked_json}")
++    write_json_file(unlinked_json, unlinked_assay_dict)
++    metadata_json = f'{output_dir}/assay_metadata.json'
++    print(f"Saving assay metadata to {metadata_json}")
++    write_json_file(metadata_json, assay_metadata)
+ 
+     report_progress(total_pages, total_pages, "✅ Finished assay extraction")
+ 
+diff --git a/constants_example.py b/constants_example.py
+deleted file mode 100644
+index 3be8e19..0000000
+--- a/constants_example.py
++++ /dev/null
+@@ -1,36 +0,0 @@
+-# --- General API Keys ---
+-# If you don't set GEMINI, you must configure language and visual models below
+-GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY_HERE'
+-GEMINI_MODEL_NAME = 'gemini-2.0-flash'
+-
+-
+-# --- Language Model Configuration ---
+-# # If not configured, use GEMINI as the language model
+-# LLM_OPENAI_COMPATIBLE_MODEL_NAME = 'gpt-4o-mini'
+-# LLM_OPENAI_COMPATIBLE_MODEL_URL = 'https://api.openai.com/v1'
+-# LLM_OPENAI_COMPATIBLE_MODEL_KEY = 'sk-YOUR_OFFICIAL_OPENAI_API_KEY_HERE'
+-
+-
+-# --- Visual Model Configuration ---
+-# # If not configured, use GEMINI for visual tasks
+-# VISUAL_MODEL_TYPE = 'openai'
+-# VISUAL_MODEL_NAME = 'gpt-4o'
+-# VISUAL_MODEL_URL = 'https://api.openai.com/v1'
+-# VISUAL_MODEL_KEY = 'sk-YOUR_OFFICIAL_OPENAI_API_KEY_HERE'
+-
+-
+-# --- Proxies & Other ---
+-HTTP_PROXY = ''
+-HTTPS_PROXY = ''
+-MOLVEC = '/path/to/your/BioChemInsight/bin/molvec-0.9.9-SNAPSHOT-jar-with-dependencies.jar'
+-
+-
+-# --- OCR Engine Configuration ---
+-# Set to 'paddleocr' or 'dots_ocr'. Leave unset to default to 'paddleocr'.
+-DEFAULT_OCR_ENGINE = 'dots_ocr'
+-# PADDLEOCR_SERVER_URL = 'http://your_paddleocr_server:8010'       # Required when using paddleocr
+-
+-
+-# --- DotsOCR Server Configuration ---
+-DOTSOCR_SERVER_URL = 'http://your_dotsocr_server:8001'
+-DOTSOCR_PROMPT_MODE = 'prompt_layout_all_en'
+diff --git a/frontend/README.md b/frontend/README.md
+index 208c429..980ad9d 100644
+--- a/frontend/README.md
++++ b/frontend/README.md
+@@ -3,10 +3,10 @@
+ ### 1. 启动后端
+ 
+ ```bash
+-uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8000
++uvicorn frontend.backend.main:app --host 0.0.0.0 --port 8001
+ ```
+ 
+-默认监听 `http://127.0.0.1:8000`，对外暴露以下关键接口：
++默认监听 `http://127.0.0.1:8001`，对外暴露以下关键接口：
+ 
+ - `POST /api/pdfs`：上传 PDF，返回 `pdf_id` 与页数。
+ - `GET /api/pdfs/{pdf_id}/pages/{page}`：返回指定页的 PNG base64 预览。
+@@ -25,7 +25,7 @@ npm install
+ npm run dev
+ ```
+ 
+-开发服务器默认在 `http://127.0.0.1:5173`，并通过 Vite 代理将 `/api` 请求转发到 `http://127.0.0.1:8000`。若后端地址不同，可在启动前设置 `VITE_API_BASE` 环境变量。
++开发服务器默认在 `http://127.0.0.1:5173`，并通过 Vite 代理将 `/api` 请求转发到 `http://127.0.0.1:8001`。若后端地址不同，可在启动前设置 `VITE_API_BASE` 环境变量。
+ 
+ ### 3. 工作流说明
+ 
+diff --git a/frontend/ui/src/api/client.ts b/frontend/ui/src/api/client.ts
+index 262598e..7e98768 100644
+--- a/frontend/ui/src/api/client.ts
++++ b/frontend/ui/src/api/client.ts
+@@ -24,7 +24,7 @@ function resolveApiBase(): string {
+ 
+   if (typeof window !== 'undefined') {
+     const { protocol, hostname, port } = window.location;
+-    const fallbackPort = (import.meta.env.VITE_API_PORT ?? '8000').toString();
++    const fallbackPort = (import.meta.env.VITE_API_PORT ?? '8001').toString();
+     const hostPrefix = `${protocol}//${hostname}`;
+ 
+     if (!port) {
+diff --git a/frontend/ui/vite.config.ts b/frontend/ui/vite.config.ts
+index 76c475f..15057db 100644
+--- a/frontend/ui/vite.config.ts
++++ b/frontend/ui/vite.config.ts
+@@ -20,7 +20,7 @@ export default defineConfig({
+     port: 5173,
+     proxy: {
+       '/api': {
+-        target: process.env.VITE_PROXY_API ?? 'http://localhost:8000',
++        target: process.env.VITE_PROXY_API ?? 'http://localhost:8001',
+         changeOrigin: true
+       }
+     }
+diff --git a/pipeline.py b/pipeline.py
+index 19e8f82..f4da634 100644
+--- a/pipeline.py
++++ b/pipeline.py
+@@ -8,7 +8,8 @@ from activity_parser import extract_activity_data
+ 
+ # Suppress TensorFlow warnings
+ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+-sys.stderr = open(os.devnull, 'w')
++if os.environ.get('BCI_SUPPRESS_STDERR') == '1':
++    sys.stderr = open(os.devnull, 'w')
+ 
+ # Suppress other warnings
+ import warnings
+@@ -237,6 +238,28 @@ def extract_assay(pdf_file, assay_pages, assay_name, compound_id_list, output_di
+     with open(assay_json, 'w', encoding='utf-8') as f:
+         json.dump(all_assay_data, f, ensure_ascii=False, indent=2)
+     print(f"Assay data saved to {assay_json}")
++
++    # activity_parser writes a generic assay_metadata.json for the last group;
++    # keep a stable assay-specific copy for the integration layer.
++    metadata_src = os.path.join(output_dir, 'assay_metadata.json')
++    metadata_dst = os.path.join(output_dir, f"{assay_name_clean}_assay_metadata.json")
++    if os.path.exists(metadata_src):
++        try:
++            import shutil
++            shutil.copyfile(metadata_src, metadata_dst)
++            print(f"Assay metadata saved to {metadata_dst}")
++        except Exception as exc:
++            print(f"Warning: failed to save assay metadata copy: {exc}")
++
++    unlinked_src = os.path.join(output_dir, 'assay_unlinked_data.json')
++    unlinked_dst = os.path.join(output_dir, f"{assay_name_clean}_assay_unlinked_data.json")
++    if os.path.exists(unlinked_src):
++        try:
++            import shutil
++            shutil.copyfile(unlinked_src, unlinked_dst)
++            print(f"Unlinked assay observations saved to {unlinked_dst}")
++        except Exception as exc:
++            print(f"Warning: failed to save unlinked assay observations copy: {exc}")
+     
+     return all_assay_data
+ 
+diff --git a/utils/llm_utils.py b/utils/llm_utils.py
+index 7cb116c..dc75138 100644
+--- a/utils/llm_utils.py
++++ b/utils/llm_utils.py
+@@ -149,7 +149,7 @@ def configure_genai(api_key):
+ 
+ @proxy_decorator
+ # @cost_time
+-def content_to_dict(content, assay_name, compound_id_list=None, retry=3):
++def content_to_dict(content, assay_name, compound_id_list=None, retry=3, allow_unlisted=False):
+     """
+     Converts the content of a Markdown text to a dictionary using Google Generative AI.
+     """
+@@ -160,8 +160,15 @@ def content_to_dict(content, assay_name, compound_id_list=None, retry=3):
+ 
+     print(f"Info: Converting content to dict using model type: {LLM_MODEL_TYPE}")
+ 
+-    if compound_id_list is None:
+-        compound_id_list_str = '开始提取数据...\n\n'
++    if compound_id_list is None or allow_unlisted:
++        compound_id_list_str = (
++            '未提供受限化合物ID列表；请从表格中提取所有明确的化合物/Entry/Example ID。\n\n'
++            '开始提取数据: \n'
++        )
++        id_rule = (
++            '1) 不限制输出到预设ID列表；从表格中的 Entry/Example/Compound/Formula/Name 等ID列提取所有明确行。\n'
++            '   输出键使用表格中最稳定、最具体的ID/名称原文。'
++        )
+     else:
+         # compound_id_list不重复,但顺序不变
+         compound_id_list = list(dict.fromkeys(compound_id_list))
+@@ -171,6 +178,9 @@ def content_to_dict(content, assay_name, compound_id_list=None, retry=3):
+         compounds = ', '.join([f'"{cid}"' for cid in compound_id_list])
+         compound_id_list_str += f"{compounds}\n\n"
+         compound_id_list_str += '\n开始提取数据: \n'
++        id_rule = (
++            '1) 只在“提供的化合物ID列表”范围内匹配与输出；不要生成列表之外的ID。'
++        )
+ 
+     prompt = f'''任务
+ 从提供的 Markdown 文本中，抽取化合物 ID 与其对应的“{assay_name}”测定值，并输出为字典。
+@@ -181,7 +191,7 @@ def content_to_dict(content, assay_name, compound_id_list=None, retry=3):
+ </MARKDOWN_TEXT>
+ 
+ 规则
+-1) 只在“提供的化合物ID列表”范围内匹配与输出；不要生成列表之外的ID。
++{id_rule}
+ 2) ID 等价匹配（不区分大小写，忽略空格与标点）：
+    - 允许的前缀：Example / Compound / Embodiment / Intermediate / Formula / 实施例 / 化合物
+    - 允许的形式：数字（1）、(1)、No.1、编号1、罗马数字（I，IIa 等）
+@@ -321,6 +331,102 @@ def content_to_dict(content, assay_name, compound_id_list=None, retry=3):
+     return None
+ 
+ 
++def _extract_json_object(text):
++    if not text:
++        return None
++    if '```json' in text:
++        parts = text.split('```json', 1)
++        if len(parts) > 1:
++            return parts[1].split('```', 1)[0].strip()
++    if '```' in text and text.count('```') >= 2:
++        parts = text.split('```', 2)
++        if len(parts) >= 2:
++            return parts[1].strip()
++    start_brace = text.find('{')
++    end_brace = text.rfind('}')
++    if start_brace != -1 and end_brace != -1 and end_brace > start_brace:
++        return text[start_brace:end_brace + 1].strip()
++    return text.strip()
++
++
++def content_to_assay_metadata(content, assay_name, retry=3):
++    """Extract assay-level metadata from assay-page Markdown as JSON.
++
++    This complements content_to_dict(): it describes the assay context once,
++    while content_to_dict() extracts per-compound values.
++    """
++    LLM_MODEL_TYPE = 'openai'
++    if not LLM_TEXT_MODEL_KEY or not LLM_TEXT_MODEL_URL or not LLM_TEXT_MODEL_NAME:
++        LLM_MODEL_TYPE = 'gemini'
++
++    prompt = f'''Task
++Extract assay metadata for "{assay_name}" from the Markdown text.
++
++<MARKDOWN_TEXT>
++{content}
++</MARKDOWN_TEXT>
++
++Rules
++- Return only one JSON object.
++- Preserve short evidence snippets from the text when available.
++- Use null when unknown. Do not invent values.
++- assay_type should be one of IC50, EC50, Ki, Kd, GI50, MIC, pIC50, pEC50, or null.
++
++Output schema:
++{{
++  "assay_name": "{assay_name}",
++  "assay_type": null,
++  "target": null,
++  "cell_line": null,
++  "organism": null,
++  "readout": null,
++  "condition": null,
++  "unit": null,
++  "table_id": null,
++  "evidence_text": null
++}}'''
++
++    if LLM_MODEL_TYPE == 'gemini':
++        configure_genai(GEMINI_API_KEY_FOR_GEMINI_MODELS)
++        model = genai.GenerativeModel(DEFAULT_GEMINI_TEXT_MODEL_FOR_CONTENT_DICT)
++        response_text = "N/A"
++        for attempt in range(retry):
++            try:
++                response = model.generate_content(prompt)
++                response_text = response.candidates[0].content.parts[0].text
++                return json.loads(_extract_json_object(response_text))
++            except Exception as exc:
++                if attempt < retry - 1:
++                    time.sleep(1 + attempt)
++                    continue
++                print(f"Metadata extraction failed for {assay_name}: {exc}")
++                return {}
++
++    if LLM_MODEL_TYPE == 'openai':
++        client = OpenAI(api_key=LLM_TEXT_MODEL_KEY, base_url=LLM_TEXT_MODEL_URL)
++        for attempt in range(retry):
++            try:
++                response = client.chat.completions.create(
++                    model=LLM_TEXT_MODEL_NAME,
++                    messages=[
++                        {"role": "system", "content": "You output strict JSON only."},
++                        {"role": "user", "content": prompt},
++                    ],
++                    temperature=0.0,
++                )
++                text = response.choices[0].message.content or ""
++                if '<think>' in text and '</think>' in text:
++                    text = text[:text.index('<think>')] + text[text.index('</think>') + len('</think>'):]
++                return json.loads(_extract_json_object(text))
++            except Exception as exc:
++                if attempt < retry - 1:
++                    time.sleep(1 + attempt)
++                    continue
++                print(f"Metadata extraction failed for {assay_name}: {exc}")
++                return {}
++    return {}
++
++
+ def encode_image_to_base64_data_uri(image_path):
+     """Encodes an image file to a base64 data URI."""
+     try:
+@@ -566,4 +672,4 @@ C. 若仅出现非法候选或无候选，则返回 "None"。
+         return data.get("COMPOUND_ID", content)
+     except json.JSONDecodeError:
+         print(f"Warning: Failed to parse JSON (get_compound_id_from_description). JSON string: '{json_str}'. Raw: '{content}'")
+-        return content
+\ No newline at end of file
++        return content

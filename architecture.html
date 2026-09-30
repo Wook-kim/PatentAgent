@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PatentAgent 시스템 아키텍처</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#1a2133; --panel2:#232c42; --ink:#e8edf7;
+    --muted:#94a3c4; --line:#39445f;
+    --gw:#4f8cff; --pipe:#ffb454; --svc:#59d499; --review:#c084fc;
+    --user:#f472b6; --data:#38bdf8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 700px at 50% -10%,#182036,#0f1420 60%);
+    color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",
+    "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; padding:34px 20px 60px;
+  }
+  h1{font-size:26px; text-align:center; margin:0 0 4px; letter-spacing:.5px}
+  .sub{text-align:center; color:var(--muted); font-size:13px; margin-bottom:28px}
+  .diagram{max-width:1120px; margin:0 auto; display:flex; flex-direction:column; align-items:center; gap:0}
+
+  .node{
+    border-radius:14px; padding:16px 20px; width:100%; position:relative;
+    box-shadow:0 10px 30px rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.06);
+  }
+  .node .title{font-weight:700; font-size:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .node .meta{color:var(--muted); font-size:12px; font-weight:500}
+  .badge{font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px; border:1px solid currentColor}
+  .badge.live{color:#59d499}
+  .tag{font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:rgba(255,255,255,.08); color:var(--muted)}
+
+  /* connectors */
+  .arrow{width:2px; height:34px; background:linear-gradient(var(--line),var(--line)); position:relative; margin:2px 0}
+  .arrow::after{content:""; position:absolute; bottom:-1px; left:50%; transform:translateX(-50%);
+    border:6px solid transparent; border-top-color:var(--line)}
+  .arrow.short{height:22px}
+  .arrow .lbl{position:absolute; left:12px; top:50%; transform:translateY(-50%); white-space:nowrap;
+    font-size:11px; color:var(--muted); background:var(--bg); padding:1px 6px; border-radius:5px}
+
+  /* USER */
+  .user{background:linear-gradient(135deg,#3a2036,#2a1826); border-color:rgba(244,114,182,.35); width:auto; text-align:center}
+  .user .title{justify-content:center; color:#f9a8d4}
+
+  /* GATEWAY */
+  .gw{background:linear-gradient(135deg,#16233f,#1a2946); border-color:rgba(79,140,255,.4)}
+  .gw>.title{color:#8fb6ff}
+  .gw-body{display:grid; grid-template-columns:1.05fr 1.35fr; gap:14px; margin-top:14px}
+  .sub-card{background:rgba(10,15,28,.55); border:1px solid rgba(255,255,255,.07); border-radius:11px; padding:13px 15px}
+  .sub-card h4{margin:0 0 9px; font-size:13px; color:#bcd0ff; letter-spacing:.3px}
+  .routes{display:flex; flex-direction:column; gap:5px; font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .routes .r{display:flex; gap:8px; align-items:center}
+  .m{font-weight:700; padding:0 6px; border-radius:5px; font-size:10.5px; min-width:42px; text-align:center}
+  .m.get{background:rgba(89,212,153,.18); color:#7ee6b0}
+  .m.post{background:rgba(255,180,84,.18); color:#ffca7a}
+  .divider{grid-column:1/-1; border-top:1px dashed rgba(255,255,255,.12); margin:2px 0 0; padding-top:8px; font-size:11px; color:var(--muted)}
+  .jm-flow{display:flex; flex-direction:column; gap:8px; font-size:12.5px}
+  .jm-step{background:rgba(79,140,255,.1); border:1px solid rgba(79,140,255,.25); border-radius:8px; padding:7px 11px}
+  .jm-step b{color:#bcd0ff}
+  .state{font-family:ui-monospace,monospace; font-size:11px; color:var(--muted); margin-top:2px}
+
+  .review-card{border-color:rgba(192,132,252,.35)!important}
+  .review-card h4{color:#d8b4fe}
+  .rev-cols{display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; font-size:11px; margin-top:2px}
+  .rev-cols div{background:rgba(192,132,252,.12); border:1px solid rgba(192,132,252,.25); border-radius:7px; padding:7px 8px; text-align:center}
+
+  /* PIPELINE */
+  .pipe{background:linear-gradient(135deg,#2e2410,#3a2c12); border-color:rgba(255,180,84,.4)}
+  .pipe>.title{color:#ffca7a}
+  .stages{display:flex; align-items:stretch; gap:0; margin-top:14px; flex-wrap:wrap}
+  .stage{flex:1; min-width:110px; background:rgba(10,15,28,.5); border:1px solid rgba(255,180,84,.28);
+    border-radius:10px; padding:11px 9px; text-align:center; position:relative}
+  .stage .sn{font-size:11px; color:var(--pipe); font-weight:700}
+  .stage .st{font-size:12.5px; font-weight:600; margin-top:3px}
+  .stage .sd{font-size:10.5px; color:var(--muted); margin-top:3px}
+  .connect{display:flex; align-items:center; color:var(--pipe); font-size:18px; padding:0 4px}
+  .stage.opt{border-style:dashed; opacity:.85}
+  .merge{margin-top:12px; background:rgba(56,189,248,.12); border:1px solid rgba(56,189,248,.35);
+    border-radius:10px; padding:11px 15px; text-align:center; font-size:13px}
+  .merge b{color:var(--data)}
+
+  /* SERVICES */
+  .svc-row{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; width:100%}
+  .svc{background:linear-gradient(135deg,#122a20,#16321f); border:1px solid rgba(89,212,153,.4);
+    border-radius:12px; padding:15px; text-align:center}
+  .svc .title{justify-content:center; color:#7ee6b0; font-size:15px}
+  .svc .port{font-family:ui-monospace,monospace; font-size:13px; color:#7ee6b0; font-weight:700}
+  .svc .role{font-size:12px; color:var(--muted); margin-top:5px}
+  .fan{display:flex; justify-content:center; gap:0; width:100%; position:relative; height:40px; align-items:center}
+  .fan .lbl{color:var(--muted); font-size:11px; background:var(--bg); padding:2px 8px; border-radius:6px; border:1px solid var(--line)}
+  .svc-caption{text-align:center; color:var(--muted); font-size:12px; margin-top:12px; width:100%}
+
+  .legend{max-width:1120px; margin:34px auto 0; display:flex; gap:18px; justify-content:center; flex-wrap:wrap; font-size:12px; color:var(--muted)}
+  .legend .item{display:flex; align-items:center; gap:7px}
+  .dot{width:12px; height:12px; border-radius:4px; display:inline-block}
+
+  .notes{max-width:1120px; margin:26px auto 0; background:var(--panel); border:1px solid rgba(255,255,255,.07);
+    border-radius:12px; padding:18px 22px}
+  .notes h3{margin:0 0 10px; font-size:14px; color:var(--ink)}
+  .notes ul{margin:0; padding-left:20px; color:var(--muted); font-size:13px; line-height:1.7}
+  .notes b{color:var(--ink)}
+  footer{text-align:center; color:#5a688a; font-size:11px; margin-top:30px}
+</style>
+</head>
+<body>
+
+<h1>PatentAgent 시스템 아키텍처</h1>
+<div class="sub">특허 PDF → 화합물 구조 + 활성(SAR) 추출 · 검수 파이프라인 &nbsp;·&nbsp; 생성일 2026-07-01</div>
+
+<div class="diagram">
+
+  <!-- USER -->
+  <div class="node user" style="width:auto">
+    <div class="title">👤 사용자 &nbsp;<span class="meta">브라우저 · 특허 PDF 구조/SAR 추출·검수</span></div>
+  </div>
+
+  <div class="arrow"><span class="lbl">HTTP</span></div>
+
+  <!-- GATEWAY -->
+  <div class="node gw">
+    <div class="title">🌐 gateway.py &nbsp;<span class="tag">FastAPI</span><span class="tag">:8000</span>
+      <span class="badge live">● 가동중</span>
+      <span class="meta">웹 진입점 · 잡 관리 · 검수 UI &nbsp;[1050줄]</span>
+    </div>
+
+    <div class="gw-body">
+      <!-- routes -->
+      <div class="sub-card">
+        <h4>라우트 계층</h4>
+        <div class="routes">
+          <div class="r"><span class="m get">GET</span> /</div>
+          <div class="r"><span class="m post">POST</span> /jobs</div>
+          <div class="r"><span class="m post">POST</span> /jobs_from_patent</div>
+          <div class="r"><span class="m get">GET</span> /jobs/{id} · /api/jobs/{id}</div>
+          <div class="r"><span class="m post">POST</span> /jobs/{id}/cancel</div>
+          <div class="divider">검수 (review_app 재사용, base=/jobs/{id}/review)</div>
+          <div class="r"><span class="m get">GET</span> .../review · /item/{i}</div>
+          <div class="r"><span class="m post">POST</span> .../review/api/item/{i}</div>
+          <div class="r"><span class="m get">GET</span> .../review/export</div>
+        </div>
+      </div>
+
+      <!-- JobManager -->
+      <div class="sub-card">
+        <h4>JobManager (핵심)</h4>
+        <div class="jm-flow">
+          <div class="jm-step"><b>queue.Queue</b> → 잡 적재</div>
+          <div class="jm-step"><b>단일 워커 스레드</b> · GPU 직렬화 (동시성 = 1)
+            <div class="state">Popen(start_new_session=True) · 취소 killpg</div>
+          </div>
+          <div class="jm-step">작업공간 <b>jobs/{id}/</b>
+            <div class="state">input.pdf · job.json · run.log · merged_integration.json · review_state.json</div>
+          </div>
+          <div class="jm-step">상태 흐름
+            <div class="state">queued → running → done | error | cancelled | interrupted</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- review -->
+      <div class="sub-card review-card" style="grid-column:1/-1">
+        <h4>검수 UI · review_app.py [973줄] · 3컬럼 상세</h4>
+        <div class="rev-cols">
+          <div>좌 — 잘린 구조<br>검증정보 · 활성값</div>
+          <div>중 — PDF 원본 영역<br>highlight 박스</div>
+          <div>우 — Ketcher 편집 iframe<br>오프라인 25MB · RDKit canonical 비교</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><span class="lbl">서브프로세스 실행</span></div>
+
+  <!-- PIPELINE -->
+  <div class="node pipe">
+    <div class="title">⚙️ integrate_prototype.py &nbsp;<span class="tag">추출 파이프라인</span>
+      <span class="meta">서브프로세스 &nbsp;[1936줄]</span>
+    </div>
+
+    <div class="stages">
+      <div class="stage"><div class="sn">1</div><div class="st">auto-pages</div><div class="sd">페이지 탐지</div></div>
+      <div class="connect">→</div>
+      <div class="stage"><div class="sn">2</div><div class="st">structures</div><div class="sd">구조 세그먼트<br>SMILES 예측</div></div>
+      <div class="connect">→</div>
+      <div class="stage"><div class="sn">3</div><div class="st">activity</div><div class="sd">활성값 (assay)</div></div>
+      <div class="connect">→</div>
+      <div class="stage"><div class="sn">4</div><div class="st">markush</div><div class="sd">Markush 구조<br>(MG 서비스)</div></div>
+      <div class="connect">→</div>
+      <div class="stage opt"><div class="sn">5</div><div class="st">coref</div><div class="sd">상호참조<br>(옵션)</div></div>
+    </div>
+
+    <div class="merge">↓ &nbsp;<b>merge</b> — seg_key 병합 → <b>merged_integration.json</b> → export ▶ 최종 SMILES + 활성 (final_source: human | extracted)</div>
+  </div>
+
+  <div class="fan"><span class="lbl">▼ &nbsp;외부 서비스 호출 (LLM · OCR · HTTP) &nbsp;▼</span></div>
+
+  <!-- SERVICES -->
+  <div class="svc-row">
+    <div class="svc node">
+      <div class="title">LiteLLM <span class="badge live">●</span></div>
+      <div class="port">:4000</div>
+      <div class="role">LLM 프록시<br>구조/텍스트 해석</div>
+    </div>
+    <div class="svc node">
+      <div class="title">PaddleOCR <span class="badge live">●</span></div>
+      <div class="port">:8010</div>
+      <div class="role">OCR 서비스<br>문서 텍스트 인식</div>
+    </div>
+    <div class="svc node">
+      <div class="title">markush_service.py <span class="badge live">●</span></div>
+      <div class="port">:8100</div>
+      <div class="role">MarkushGrapher (GPU)<br>Markush 구조 예측</div>
+    </div>
+  </div>
+  <div class="svc-caption">외부 의존 마이크로서비스 — gateway 가 오케스트레이션 (무거운 GPU/OCR/LLM 작업 위임)</div>
+
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="item"><span class="dot" style="background:#4f8cff"></span> 게이트웨이</div>
+  <div class="item"><span class="dot" style="background:#ffb454"></span> 추출 파이프라인</div>
+  <div class="item"><span class="dot" style="background:#c084fc"></span> 검수 UI</div>
+  <div class="item"><span class="dot" style="background:#59d499"></span> 마이크로서비스</div>
+  <div class="item"><span class="dot" style="background:#38bdf8"></span> 데이터 산출물</div>
+</div>
+
+<!-- NOTES -->
+<div class="notes">
+  <h3>핵심 설계 포인트</h3>
+  <ul>
+    <li><b>단일 워커 + 큐</b> — GPU 자원을 직렬화(동시성 1). 여러 잡이 와도 하나씩 처리.</li>
+    <li><b>프로세스 그룹 격리</b> — start_new_session=True 로 실행, 취소 시 자식까지 killpg 로 정리, 재기동 시 orphan 재입양.</li>
+    <li><b>마이크로서비스 분리</b> — 무거운 GPU/OCR/LLM 은 별도 포트 서비스로 위임, gateway 는 오케스트레이션만.</li>
+    <li><b>원본 보존 검수</b> — Ketcher 로 사람이 교정하되 RDKit canonical 비교로 실제 수정분만 corrected 로 기록, 추출 원본 보존.</li>
+  </ul>
+</div>
+
+<footer>PatentAgent · gateway.py :8000 · architecture diagram</footer>
+
+</body>
+</html>

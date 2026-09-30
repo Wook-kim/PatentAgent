@@ -1,0 +1,17 @@
+# 외부 엔진 (원본 저장소 clone, 대용량)
+BioChemInsight/
+MarkushGrapher/
+OpenChemIE/
+MARCUS/
+glyph/
+
+# 실행 산출물
+jobs/
+integration_*/
+
+# Python / 기타
+__pycache__/
+*.pyc
+.venv/
+.hf_cache/
+.env

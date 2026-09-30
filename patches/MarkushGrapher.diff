@@ -1,0 +1,20 @@
+diff --git a/markushgrapher/ocr/chemical_ocr.py b/markushgrapher/ocr/chemical_ocr.py
+index d27af0b..ff690e9 100644
+--- a/markushgrapher/ocr/chemical_ocr.py
++++ b/markushgrapher/ocr/chemical_ocr.py
+@@ -249,7 +249,14 @@ class Chemical_OCR:
+             self.backend = "vllm"
+             from transformers import AutoProcessor
+             self.processor = AutoProcessor.from_pretrained(model_path)
+-            self.llm = LLM(model=self.model_path, limit_mm_per_prompt={"image": 1})
++            # TITAN RTX (compute capability 7.5) does not support bfloat16.
++            # Default to float16; allow override via CHEMICALOCR_VLLM_DTYPE.
++            _vllm_dtype = os.environ.get("CHEMICALOCR_VLLM_DTYPE", "half")
++            self.llm = LLM(
++                model=self.model_path,
++                limit_mm_per_prompt={"image": 1},
++                dtype=_vllm_dtype,
++            )
+             print(
+                 f"Total GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
+             )
