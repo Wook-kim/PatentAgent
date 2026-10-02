@@ -16,6 +16,7 @@ class Settings:
     llm_model: str = ""
     llm_api_key: str = field(default="", repr=False)
     llm_timeout: float = 180
+    llm_response_format: str = "json_schema"
     dpi: int = 150
     ocsr_checkpoint: str = "EdisonScientific/OCSRGlyph"
     ocsr_revision: str = "da0d049fa56effd3a07ecb15c715efdd78d9e8a0"
@@ -39,6 +40,7 @@ class Settings:
             llm_model=os.getenv("PATENTAGENT_LLM_MODEL", ""),
             llm_api_key=os.getenv("PATENTAGENT_LLM_API_KEY", ""),
             llm_timeout=float(os.getenv("PATENTAGENT_LLM_TIMEOUT", "180")),
+            llm_response_format=os.getenv("PATENTAGENT_LLM_RESPONSE_FORMAT", "json_schema"),
             dpi=int(os.getenv("PATENTAGENT_DPI", "150")),
             ocsr_checkpoint=os.getenv("PATENTAGENT_OCSR_CHECKPOINT", cls.ocsr_checkpoint),
             ocsr_revision=os.getenv("PATENTAGENT_OCSR_REVISION", cls.ocsr_revision),
@@ -67,5 +69,7 @@ class Settings:
             raise ValueError("PATENTAGENT_LLM_MODEL을 설정하세요.")
         if not self.llm_base_url.startswith(("http://", "https://")):
             raise ValueError("PATENTAGENT_LLM_BASE_URL은 http(s) 주소여야 합니다.")
+        if self.llm_response_format not in {"json_schema", "none"}:
+            raise ValueError("PATENTAGENT_LLM_RESPONSE_FORMAT: json_schema/none 중 선택하세요.")
         if not 72 <= self.dpi <= 300:
             raise ValueError("PATENTAGENT_DPI는 72~300 범위여야 합니다.")

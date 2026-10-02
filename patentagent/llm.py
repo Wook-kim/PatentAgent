@@ -14,6 +14,7 @@ class VisionClient:
     def __init__(self, settings: Settings):
         settings.require_llm()
         self.model = settings.llm_model
+        self.response_format = settings.llm_response_format
         self.client = OpenAI(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key or "not-required",
@@ -36,11 +37,21 @@ class VisionClient:
             "Use null for unknown values. Return one JSON object conforming to this schema:\n"
             + json.dumps(schema.model_json_schema(), ensure_ascii=False)
         )
+        extra = {}
+        if self.response_format == "json_schema":
+            # Without an explicit JSON mode some backends (e.g. Claude via LiteLLM)
+            # prepend prose to the JSON; json_object is mapped to an empty tool call.
+            extra["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": schema.__name__,
+                                "schema": schema.model_json_schema()},
+            }
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": content}],
             temperature=0,
+            **extra,
         )
         if not response.choices:
             raise ValueError("LLM 응답에 choices가 없습니다.")

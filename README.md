@@ -52,6 +52,9 @@ PATENTAGENT_DEVICE=cuda:1
 ```
 
 API는 `/chat/completions`의 `image_url` 입력과 JSON 응답을 지원해야 합니다.
+기본값 `PATENTAGENT_LLM_RESPONSE_FORMAT=json_schema`는 출력 스키마를 `response_format`으로 전달합니다
+(vLLM·OpenAI·LiteLLM 지원). `response_format`을 거부하는 엔드포인트는 `none`으로 두면
+프롬프트만으로 JSON을 요청하며, 이때 설명문이 섞인 응답은 오류로 처리됩니다.
 인증 없는 자체 서버는 키를 비워둘 수 있습니다. 키는 실행 명령이나 결과 manifest에 기록하지 않습니다.
 GPU 번호는 실제 장치에 맞춰 지정하세요. GPU가 하나라면 `cuda:0`을 사용합니다.
 `.env`는 **명령을 실행한 디렉토리**에서 읽으며 환경변수가 우선합니다.
