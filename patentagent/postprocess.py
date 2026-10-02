@@ -494,6 +494,67 @@ def _rdkit_canonical(smiles, ignore_stereo=False):
         return True, None
 
 
+# 라벨이 구체적 원자단을 가리키면 실제 원소로 해소한다 (Phase 0 canon_skeleton 과 동일).
+# MarkushGlyph 는 물결선을 _AP·CH3, CH2 사슬을 CH2 상위원자로 쓰고 OCSR 은 같은 자리를
+# 탄소로 그리므로, 해소하지 않으면 표기 관습 차이가 mismatch 로 잡힌다.
+_CONCRETE_LABEL = {
+    "_AP": 6,
+    "C": 6, "CH": 6, "CH2": 6, "CH3": 6,
+    "N": 7, "NH": 7, "NH2": 7,
+    "O": 8, "OH": 8,
+    "S": 16, "SH": 16,
+}
+
+
+def _rdkit_skeleton(smiles):
+    """상위원자 라벨·부착점까지 해소한 입체 무시 골격 canonical. 실패 시 None.
+
+    가변 라벨(R1, Q, ...)은 isotope/atom map 을 지운 ``*`` 로 남는다. 라벨 ``H`` 는
+    명시적 수소이므로 제거한다.
+    """
+    if not smiles:
+        return None
+    try:
+        from rdkit import Chem, RDLogger
+        RDLogger.DisableLog("rdApp.*")
+    except ImportError:
+        return None
+    import re
+    s = str(smiles).split("|")[0].strip()
+    m = Chem.MolFromSmiles(s)
+    if m is None:
+        return None
+    labels = {}
+    block = re.search(r"\|\$([^$]*)\$", str(smiles))
+    if block:
+        for i, label in enumerate(block.group(1).split(";")):
+            if label:
+                labels[i] = label.split("?")[0].strip()   # "CH2?0-3" -> "CH2"
+    rw = Chem.RWMol(m)
+    drop = []
+    for a in rw.GetAtoms():
+        if a.GetAtomicNum() != 0:
+            continue
+        label = labels.get(a.GetIdx(), "")
+        z = _CONCRETE_LABEL.get(label)
+        if z:
+            a.SetAtomicNum(z)
+            a.SetNoImplicit(False)
+        elif label == "H":
+            drop.append(a.GetIdx())
+        a.SetIsotope(0)
+        a.SetAtomMapNum(0)
+    for i in sorted(drop, reverse=True):
+        rw.RemoveAtom(i)
+    m = rw.GetMol()
+    Chem.RemoveStereochemistry(m)
+    try:
+        Chem.SanitizeMol(m)
+        return Chem.MolToSmiles(m)
+    except Exception:
+        return None
+
+
 def enrich_with_rdkit(rows):
     """각 row 에 RDKit 검증/교차검증 신뢰도 필드 추가.
 
@@ -502,6 +563,7 @@ def enrich_with_rdkit(rows):
     - agreement : 두 엔진 결과 비교
         'match'           : 입체 포함 canonical 동일
         'match_skeleton'  : 입체 무시 시 동일 (입체만 차이)
+        'match_normalized': 상위원자 라벨/부착점(_AP) 해소 후 골격 동일 (표기 관습 차이)
         'mismatch'        : 골격도 다름
         'single'          : 한쪽만 존재
         'unparsable'      : 파싱 실패로 비교 불가
@@ -528,6 +590,8 @@ def enrich_with_rdkit(rows):
             agreement = "match"
         elif c1s and c2s and c1s == c2s:
             agreement = "match_skeleton"
+        elif (k1 := _rdkit_skeleton(smi)) and k1 == _rdkit_skeleton(cxs):
+            agreement = "match_normalized"
         elif c1 is None or c2 is None:
             agreement = "unparsable"
         else:
@@ -536,9 +600,10 @@ def enrich_with_rdkit(rows):
 
         # 신뢰도: 두 엔진 골격 일치 + ID 정제 안 거침 => high
         id_clean = r.get("compound_id_raw") is None
-        if agreement in ("match", "match_skeleton") and id_clean:
+        matched = agreement in ("match", "match_skeleton", "match_normalized")
+        if matched and id_clean:
             conf = "high"
-        elif agreement in ("match", "match_skeleton"):
+        elif matched:
             conf = "medium"
         elif agreement == "single" and (v1 or v2):
             conf = "medium"
