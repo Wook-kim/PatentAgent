@@ -1,0 +1,8 @@
+include README.md .env.example uv.lock
+include tools/vendor_glyph.py
+exclude autodetect_pages.py
+global-exclude ._*
+global-exclude *.pyc
+prune legacy
+prune examples
+prune test_patents

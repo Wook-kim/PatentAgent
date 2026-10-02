@@ -3,7 +3,7 @@ BioChemInsight/
 MarkushGrapher/
 OpenChemIE/
 MARCUS/
-glyph/
+/glyph/
 
 # 실행 산출물
 jobs/
@@ -15,3 +15,11 @@ __pycache__/
 .venv/
 .hf_cache/
 .env
+data/
+models/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+._*

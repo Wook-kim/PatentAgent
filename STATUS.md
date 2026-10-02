@@ -1,5 +1,12 @@
 # PatentAgent — 진행 현황 (Status)
 
+> **2026-10-02 구조 변경:** 현재 실행 경로는 `patentagent/` 내부 모듈입니다.
+> 외부 프로젝트 체크아웃·독립 추론 서버 의존을 제거하는 구현을 추가했습니다.
+> **2026-10-02 Glyph 전환:** 일반 구조는 OCSRGlyph, Markush는 MarkushGlyph를 내부에서 실행합니다.
+> ChemicalOCR·MolScribe·MarkushGrapher 추론 코드와 전용 의존성을 제거했습니다.
+> 설치·검증 범위는 [README.md](./README.md)를 참고하세요.
+> 아래의 엔진별 운영 현황은 전환 전 기록이며 새 런타임의 GPU 검증 결과가 아닙니다.
+
 최종 갱신: 2026-09-30
 
 > 관련 문서: [AGENT_DESIGN.md](./AGENT_DESIGN.md) (설계서) · [GLYPH_PHASE0.md](./GLYPH_PHASE0.md) (Glyph 비교 스파이크)

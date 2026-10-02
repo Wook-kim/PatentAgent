@@ -1,0 +1,99 @@
+{
+  "repository": "https://github.com/EdisonScientific/glyph",
+  "revision": "0bf782f863d26b041ace157668928ef07c38b972",
+  "files": [
+    {
+      "upstream": "glyph/ocsr/config.py",
+      "path": "ocsr/config.py",
+      "upstream_sha256": "07b5ce00f83928c158fca2727fc3c67362bab8e10ec65ff37ed2c2c48fbed425",
+      "vendored_sha256": "d91b8454cab123784399b2db4d5b269d4f9078a4893784bb8e5afd303ba191e5"
+    },
+    {
+      "upstream": "glyph/ocsr/baseline_config.py",
+      "path": "ocsr/baseline_config.py",
+      "upstream_sha256": "18a4da41dcb22b4ec32a7ab097763f3c80e47369306a41196a49160999a38eff",
+      "vendored_sha256": "2f092c27f821eb965817105294da00eaec78a093e0348970b40b30f6b88602e5"
+    },
+    {
+      "upstream": "glyph/ocsr/model.py",
+      "path": "ocsr/model.py",
+      "upstream_sha256": "b999e468e180889c5f480d559b82b2010bb674c2fbb4e50c4824bd952f021a98",
+      "vendored_sha256": "42073076901d0652a54a24b71af52255cc16a613c4a4a7ef83d634b49f45132a"
+    },
+    {
+      "upstream": "glyph/ocsr/smiles_tokenizer.py",
+      "path": "ocsr/smiles_tokenizer.py",
+      "upstream_sha256": "d2a2e7a7a4516ff9cb09de333d236468cb26454b2053aeaa74eb3d85b5a7dd82",
+      "vendored_sha256": "fda94650fb5ab77769387a24c1097294d605480dc6f8dc86279509791d1b5691"
+    },
+    {
+      "upstream": "glyph/ocsr/postprocess.py",
+      "path": "ocsr/postprocess.py",
+      "upstream_sha256": "84fab7986883db8e190f56471ffe9c7a773cb1bbde35eb8734f18204de1b2122",
+      "vendored_sha256": "b5e2c7f67dd1954e782fa926252c1a247a5fd059e0bb676bcd191795b5a7444a"
+    },
+    {
+      "upstream": "glyph/ocsr/vocab/vocab_chars.json",
+      "path": "ocsr/vocab/vocab_chars.json",
+      "upstream_sha256": "74a1bea43c1488383498d68521cf4f5527aacfb084450a6e455583ed2c0cdfb1",
+      "vendored_sha256": "74a1bea43c1488383498d68521cf4f5527aacfb084450a6e455583ed2c0cdfb1"
+    },
+    {
+      "upstream": "glyph/ocsr/eval.py",
+      "path": "ocsr/eval.py",
+      "upstream_sha256": "61e26f9602f8be024be183961c13887962888f9801abc3d5175a76c977ae56b9",
+      "vendored_sha256": "3bfc680a2e1cf98783a4d1a6d79df3ce8f8374bebff81e6fe598ec2c197b4422"
+    },
+    {
+      "upstream": "glyph/ocsr/predict.py",
+      "path": "ocsr/predict.py",
+      "upstream_sha256": "a8ce1a72d646a29baebd14174a30a584cbcb7c28a3606e4f4723f85190368f84",
+      "vendored_sha256": "79afccb69a9e5cb3ff7b23654f9de50ea9f693dc21c30ffc010dc44d1da0383b"
+    },
+    {
+      "upstream": "glyph/markush/eval/common.py",
+      "path": "markush/common.py",
+      "upstream_sha256": "13f4b31773b5bcea6223569d40c6b42b404a534fb06056f5a0ca3e553496cef5",
+      "vendored_sha256": "0b34559a84438076770be1cf69ab519838528937feab71ba7cdfcdc25828faa7"
+    },
+    {
+      "upstream": "glyph/markush/data/pipeline.py",
+      "path": "markush/conversion.py",
+      "upstream_sha256": "c54d1aaba8c76d1b384d696ab1225d688a3d59742b5ec932c65ce970610debf4",
+      "vendored_sha256": "f83a431f36f16392284df1c11a8e448fac0bb90f4d268b626d15ccdcf6f0fc12"
+    },
+    {
+      "upstream": "glyph/markush/eval/checkpoint.py",
+      "path": "markush/loader.py",
+      "upstream_sha256": "ca2aeb9ee102e9d7bd12b92dccb1922e387271e8c893b3960f2a770af9b61d3f",
+      "vendored_sha256": "67f665c0e91fb20797edb2b471215ecdb6e4a76cea1fee91f66dc25da341d36a"
+    },
+    {
+      "upstream": "glyph/markush/eval/fast_eval.py",
+      "path": "markush/padding.py",
+      "upstream_sha256": "974cc8aebea7a1ecc4269efcaa05b89bd477c42f633155373ab792454b87a52f",
+      "vendored_sha256": "83327992cdef584130c632a24f9788b3e686a42628c6bd7c86d6413fe5b9e7f6"
+    },
+    {
+      "upstream": "glyph/markush/inference.py",
+      "path": "markush/inference.py",
+      "upstream_sha256": "fde1552c5575df8285963f16774678af5101e50dd6400c219fb1aca1fa5d583a",
+      "vendored_sha256": "e3520b3d3ad07defa8f09e77bbc3bc84a0feaca66c40bd80b9b6cc4beaecee65"
+    },
+    {
+      "upstream": "LICENSE",
+      "path": "LICENSE.txt",
+      "upstream_sha256": "a3cc48830cac658c9aa07edfcb5c3c027e1ed9cd6aed2fe54c94744060e80baf",
+      "vendored_sha256": "a3cc48830cac658c9aa07edfcb5c3c027e1ed9cd6aed2fe54c94744060e80baf"
+    }
+  ],
+  "modifications": [
+    "Internal namespace and packaged vocabulary.",
+    "Inference-only slices; no training, data pipelines, scoring or external projects.",
+    "Expose literal OCSR decoder output with postprocess=None.",
+    "Markush greedy batches only; preserve decoded raw text and conversion errors.",
+    "Preserve existing standard CXSMILES labels; reject mixed label formats.",
+    "Local adapter required; app resolves pinned model snapshots before loading.",
+    "Stock Transformers, no remote code; eager attention for TITAN RTX."
+  ]
+}

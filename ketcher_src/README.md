@@ -1,13 +1,13 @@
 # Ketcher 임베드 빌드 소스
 
 검수 UI(review_app.py / gateway.py)가 쓰는 Ketcher standalone 정적 빌드의 소스.
-산출물은 `../review_static/ketcher/` 에 배치됨.
+산출물은 `../patentagent/static/ketcher/` 에 배치됨.
 
 ## 재빌드
 ```bash
 npm install            # node 20+ (ketcher 3.15.0)
 npx vite build         # -> dist-embed/
-cp -r dist-embed/* ../review_static/ketcher/
+cp -r dist-embed/* ../patentagent/static/ketcher/
 ```
 
 ## 핵심: vite.config.js

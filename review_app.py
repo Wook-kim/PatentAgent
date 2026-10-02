@@ -28,8 +28,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Ketcher standalone 정적 빌드 위치 (review_static/ketcher/, 완전 오프라인 자기완결)
-KETCHER_DIR = Path(__file__).resolve().parent / "review_static" / "ketcher"
+# Ketcher standalone 정적 빌드는 Python 패키지에 함께 포함된다.
+from importlib.resources import files
+KETCHER_DIR = Path(str(files("patentagent").joinpath("static/ketcher")))
 
 
 def _canon(smiles):
@@ -162,6 +163,31 @@ def _compound_label(row, idx=None):
     return "Unassigned"
 
 
+def _ocsr_smiles(row):
+    return row.get("smiles_ocsr", row.get("smiles_molscribe"))
+
+
+def _engine_label(row, role):
+    fallback = "MolScribe" if role == "ocsr" and "smiles_molscribe" in row else (
+        "OCSR" if role == "ocsr" else "Markush")
+    return html.escape(str(row.get(f"{role}_model") or fallback))
+
+
+def _glyph_evidence_html(row):
+    entries = [
+        ("일반 구조 원문", row.get("ocsr_raw")),
+        ("Markush 모델 원문", row.get("markush_raw")),
+        ("CXSMILES_OPT", row.get("cxsmiles_opt")),
+        ("치환기 표 원문", row.get("markush_stable_raw")),
+        ("변환 상태", row.get("markush_conversion_status")),
+    ]
+    content = "".join(
+        f"<b>{label}</b><pre style='white-space:pre-wrap;overflow-wrap:anywhere'>"
+        f"{html.escape(str(value))}</pre>"
+        for label, value in entries if value)
+    return f"<details><summary>모델 출력 원문</summary>{content}</details>" if content else ""
+
+
 def build_html(out_dir):
     out_dir = Path(out_dir).resolve()
     rows = json.load(open(out_dir / "merged_integration.json", encoding="utf-8"))
@@ -172,7 +198,8 @@ def build_html(out_dir):
     conf_color = {"high": "#2e7d32", "medium": "#f57f17", "low": "#c62828"}
     cards = []
     for i, r in enumerate(rows_sorted):
-        seg = _find_segment_image(bci_out, r.get("seg_key"))
+        seg = Path(r["structure_image"]) if r.get("structure_image") else None
+        seg = seg if seg and seg.exists() else _find_segment_image(bci_out, r.get("seg_key"))
         uri = _img_data_uri(seg) if seg else None
         img_html = (f'<img src="{uri}" style="max-width:220px;max-height:200px;'
                     f'border:1px solid #ccc"/>' if uri
@@ -201,9 +228,10 @@ def build_html(out_dir):
         if r.get("agreement") == "mismatch":
             warn.append("⚠️ 두 엔진 구조 불일치")
         if r.get("smiles_valid") is False:
-            warn.append("⚠️ MolScribe SMILES 무효")
+            warn.append(f"⚠️ {_engine_label(r, 'ocsr')} SMILES 무효")
         if r.get("cxsmiles_valid") is False:
-            warn.append("⚠️ MarkushGrapher CXSMILES 무효")
+            warn.append(f"⚠️ {_engine_label(r, 'markush')} CXSMILES 무효")
+        warn.extend("⚠️ " + html.escape(str(error)) for error in r.get("extraction_errors") or [])
         if r.get("coref_id_agree") is True:
             warn.append("✅ MolCoref 라벨 일치")
         warn_html = "<br>".join(warn)
@@ -219,8 +247,9 @@ def build_html(out_dir):
             <div class="imgcol">{img_html}</div>
             <div class="datacol">
               <div class="warn">{warn_html}</div>
-              <div class="smi"><b>SMILES (MolScribe):</b><br><code>{html.escape(str(r.get('smiles_molscribe') or ''))}</code></div>
-              <div class="smi"><b>CXSMILES (Markush):</b><br><code>{html.escape(str(r.get('cxsmiles_markush') or ''))}</code></div>
+              <div class="smi"><b>SMILES ({_engine_label(r, 'ocsr')}):</b><br><code>{html.escape(str(_ocsr_smiles(r) or ''))}</code></div>
+              <div class="smi"><b>CXSMILES ({_engine_label(r, 'markush')}):</b><br><code>{html.escape(str(r.get('cxsmiles_markush') or ''))}</code></div>
+              {_glyph_evidence_html(r)}
               <table class="acts"><tr><th>어세이</th><th>원문</th><th>정규화</th><th>nM</th></tr>{act_rows}</table>
               <div class="review">
                 <label>검수:
@@ -420,6 +449,10 @@ def _highlight_image_bytes(srv, idx):
         r = srv.rows[idx]
     except (IndexError, ValueError):
         return None
+    if r.get("highlight_image"):
+        image = Path(r["highlight_image"])
+        if image.is_file():
+            return image.read_bytes()
     highlighted = _render_highlight(srv.bci_out, r.get("seg_key"))
     if highlighted:
         return highlighted
@@ -605,6 +638,10 @@ def _item_page_html(srv, idx, base="", home_url="/"):
         assay_desc = an
         if meta.get("assay_type"):
             assay_desc += f" ({meta.get('assay_type')})"
+        if meta.get("source_pages"):
+            assay_desc += " · p." + ",".join(str(page) for page in meta["source_pages"])
+        if meta.get("evidence_text"):
+            assay_desc += " · " + str(meta["evidence_text"])
         act_rows += (f"<tr><td>{html.escape(an)}</td>"
                      f"<td>{html.escape(str(a.get('value_raw')))}</td>"
                      f"<td>{nM_s}</td>"
@@ -619,9 +656,13 @@ def _item_page_html(srv, idx, base="", home_url="/"):
     if r.get("agreement") == "mismatch":
         warn.append("⚠️ 두 엔진 구조 불일치 — 어느 쪽이 맞는지 확인 후 수정")
     if r.get("smiles_valid") is False:
-        warn.append("⚠️ MolScribe SMILES 무효")
+        warn.append(f"⚠️ {_engine_label(r, 'ocsr')} SMILES 무효")
     if r.get("cxsmiles_valid") is False:
-        warn.append("⚠️ MarkushGrapher CXSMILES 무효")
+        warn.append(f"⚠️ {_engine_label(r, 'markush')} CXSMILES 무효")
+    for error in r.get("extraction_errors") or []:
+        warn.append("⚠️ " + html.escape(str(error)))
+    if r.get("identity_evidence"):
+        warn.append("ID 근거: " + html.escape(str(r["identity_evidence"])))
     warn_html = "<br>".join(warn) or "특이사항 없음"
     groups = ", ".join(r.get("markush_groups") or [])
     markush_html = ""
@@ -727,8 +768,9 @@ def _item_page_html(srv, idx, base="", home_url="/"):
     <div class="panel">
       <h3>검증 정보</h3>
       <div class="warn">{warn_html}</div>
-      <div class="smi"><b>MolScribe:</b><br><code>{html.escape(str(r.get('smiles_molscribe') or ''))}</code></div>
-      <div class="smi"><b>Markush CXSMILES:</b><br><code>{html.escape(str(r.get('cxsmiles_markush') or ''))}</code></div>
+      <div class="smi"><b>{_engine_label(r, 'ocsr')} SMILES:</b><br><code>{html.escape(str(_ocsr_smiles(r) or ''))}</code></div>
+      <div class="smi"><b>{_engine_label(r, 'markush')} CXSMILES:</b><br><code>{html.escape(str(r.get('cxsmiles_markush') or ''))}</code></div>
+      {_glyph_evidence_html(r)}
       {markush_html}
     </div>
     <div class="panel">

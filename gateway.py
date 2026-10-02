@@ -9,20 +9,19 @@ PatentAgent 웹 서비스 게이트웨이
 흐름:
   1) 사용자가 브라우저에서 examples/ PDF 선택 (+ 추출 옵션)
   2) 게이트웨이가 작업(job)을 큐에 넣고 job_id 즉시 반환
-  3) 단일 워커가 integrate_prototype.py 를 순차 실행 (GPU 경합 방지: 동시성 1)
+  3) 단일 워커가 patentagent extract 를 순차 실행 (GPU 경합 방지: 동시성 1)
   4) 진행 상태/로그를 폴링으로 확인
   5) 완료되면 Ketcher 검수 UI 로 연결 (review_app 렌더 함수 재사용)
 
 설계 원칙:
-  - 게이트웨이 자체는 GPU/무거운 의존성 없음 (system python3 + fastapi/uvicorn).
-    무거운 추출은 integrate_prototype.py 서브프로세스 + 기존 마이크로서비스
-    (LiteLLM 4000, PaddleOCR 8010, markush_service 8100) 에 위임.
+  - 웹 서버와 추출 워커는 같은 패키지·Python 환경을 사용한다.
+    추출은 작업별 프로세스로 격리하며 별도 추론 서버는 필요하지 않다.
   - 159개 화합물 기준 추출에 30분+ 걸리므로 요청-응답 동기 처리 불가 → 작업 큐.
   - GPU(TITAN RTX) 경합 방지를 위해 워커는 동시성 1 (한 번에 한 작업).
 
 실행:
   python3 gateway.py --port 8000
-  (전제: LiteLLM 4000 / PaddleOCR 8010 / markush_service 8100 가동)
+  또는 patentagent serve --port 8000
 """
 import argparse
 import json
@@ -46,13 +45,15 @@ import uvicorn
 
 # review_app 의 렌더링/상태 로직 재사용 (검수 UI 를 다시 구현하지 않음)
 import review_app
+from patentagent.config import Settings
+from patentagent.pipeline import STEPS
 
-ROOT = Path(__file__).resolve().parent
-JOBS_DIR = ROOT / "jobs"            # 작업별 작업공간 (= integrate_prototype --out)
-JOBS_DIR.mkdir(exist_ok=True)
-EXAMPLES_DIR = ROOT / "examples"    # 서버 로컬 예제 PDF 디렉토리 (업로드 대신 선택)
-EXAMPLES_DIR.mkdir(exist_ok=True)
-INTEGRATE = ROOT / "integrate_prototype.py"
+ROOT = Path.cwd()
+SETTINGS = Settings.from_env()
+JOBS_DIR = SETTINGS.data_dir / "jobs"
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
+EXAMPLES_DIR = Path(os.getenv("PATENTAGENT_EXAMPLES_DIR", str(ROOT / "examples"))).resolve()
+EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _list_examples():
@@ -63,7 +64,6 @@ def _list_examples():
     return out
 
 
-MG_SERVICE_URL = os.environ.get("MG_SERVICE_URL", "http://localhost:8100")
 _UA = "Mozilla/5.0 (PatentAgent)"
 _PAT_NUM_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{5,}$")  # US10000000B2, EP1234567A1 ...
 MAX_PDF_BYTES = int(os.environ.get("PATENTAGENT_MAX_PDF_BYTES", str(100 * 1024 * 1024)))
@@ -221,11 +221,11 @@ def _now():
 PIPELINE_STEPS = [
     ("autopages", "페이지·어세이 자동 탐지",
      ["[BioChemInsight] 실행", "[BioChemInsight] structures.csv", "--structure-pages"]),
-    ("structures", "구조 추출 (BioChemInsight)",
+    ("structures", "구조 검출·인식",
      ["[BioChemInsight] 구조 세그먼트"]),
     ("activity", "활성값 추출",
      ["[Activity]"]),
-    ("markush", "Markush 구조 인식 (MarkushGrapher)",
+    ("markush", "Markush 구조 인식 (MarkushGlyph)",
      ["개 CXSMILES 예측"]),
     ("coref", "구조↔ID 교차검증 (MolCoref)",
      ["[MolCoref]"]),
@@ -237,6 +237,19 @@ PIPELINE_STEPS = [
 def _compute_steps(job_id, meta):
     """run.log 마커로 파이프라인 단계별 상태 계산.
     반환: [{key, name, state}] — state ∈ done|active|pending. (active=현재 진행중)"""
+    progress_path = JOBS_DIR / job_id / "progress.json"
+    if progress_path.exists():
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        terminal = meta.get("status") in ("error", "cancelled", "interrupted")
+        return [
+            {"key": item["key"], "name": item["label"],
+             "state": ("pending" if terminal and item["status"] == "running" else
+                       {"running": "active", "skipped": "skipped"}.get(
+                           item["status"], item["status"]))}
+            for item in progress
+        ]
+    if meta.get("options", {}).get("runtime") == "native":
+        return [{"key": key, "name": label, "state": "pending"} for key, label in STEPS]
     log_path = JOBS_DIR / job_id / "run.log"
     log = ""
     if log_path.exists():
@@ -304,16 +317,15 @@ def _error_html(title, message):
 </div></body></html>"""
 
 
-def _build_opts(auto_pages, structure_pages, assay_pages, assay_names, engine, with_coref):
+def _build_opts(auto_pages, structure_pages, assay_pages, assay_names, markush):
     """업로드/특허 핸들러 공통 옵션 dict."""
     return {
         "auto_pages": _form_bool(auto_pages),
         "structure_pages": (structure_pages or "").strip(),
         "assay_pages": (assay_pages or "").strip(),
         "assay_names": (assay_names or "").strip(),
-        "engine": (engine or "").strip() or "molscribe",
-        "with_coref": _form_bool(with_coref),
-        "gpu": "1",
+        "markush": _form_bool(markush),
+        "runtime": "native",
     }
 
 
@@ -426,7 +438,7 @@ class JobManager:
         return sorted(live, key=lambda m: m["created_at"], reverse=True)
 
     def _run(self):
-        """단일 워커 루프: 큐에서 하나씩 꺼내 integrate_prototype 실행."""
+        """단일 워커 루프: 같은 설치 환경의 추출 모듈을 실행."""
         while True:
             job_id = self.q.get()
             meta = self.jobs.get(job_id)
@@ -452,8 +464,6 @@ class JobManager:
                     logf.flush()
                     env = dict(os.environ)
                     env["PYTHONUNBUFFERED"] = "1"
-                    env.setdefault("AWS_REGION", "us-east-1")
-                    env.setdefault("AWS_DEFAULT_REGION", "us-east-1")
                     # 새 프로세스 그룹으로 실행 → 자식(pipeline.py 등)까지 한 번에 종료 가능
                     proc = subprocess.Popen(
                         cmd, cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT,
@@ -532,22 +542,17 @@ class JobManager:
         return meta
 
     def _build_cmd(self, job_dir, opts):
-        cmd = [sys.executable, str(INTEGRATE), str(job_dir / "input.pdf"),
-               "--out", str(job_dir),
-               "--engine", opts.get("engine") or "molscribe",
-               "--gpu", str(opts.get("gpu") or "1"),
-               "--mg-service-url", MG_SERVICE_URL]
-        if opts.get("auto_pages"):
-            cmd.append("--auto-pages")
-        else:
-            if opts.get("structure_pages"):
-                cmd += ["--structure-pages", opts["structure_pages"]]
-            if opts.get("assay_pages"):
-                cmd += ["--assay-pages", opts["assay_pages"]]
+        cmd = [sys.executable, "-m", "patentagent", "extract",
+               str(job_dir / "input.pdf"), "--out", str(job_dir)]
+        cmd.append("--auto-pages" if opts.get("auto_pages") else "--no-auto-pages")
+        if opts.get("structure_pages"):
+            cmd += ["--structure-pages", opts["structure_pages"]]
+        if opts.get("assay_pages"):
+            cmd += ["--assay-pages", opts["assay_pages"]]
         if opts.get("assay_names"):
             cmd += ["--assay-names", opts["assay_names"]]
-        if opts.get("with_coref"):
-            cmd.append("--with-coref")
+        if not opts.get("markush", True):
+            cmd.append("--no-markush")
         return cmd
 
 
@@ -582,8 +587,7 @@ def create_job(
     structure_pages: str = Form(""),
     assay_pages: str = Form(""),
     assay_names: str = Form(""),
-    engine: str = Form("molscribe"),
-    with_coref: str = Form(""),
+    markush: str = Form(""),
 ):
     # 네트워크 정책상 직접 업로드 불가 → 서버 로컬 examples/ 에서 PDF 선택.
     # 디렉토리 탈출 방지: 파일명만 허용하고 examples 안에 실재하는지 확인.
@@ -591,7 +595,7 @@ def create_job(
     src = (EXAMPLES_DIR / name).resolve()
     if EXAMPLES_DIR.resolve() not in src.parents or src.suffix.lower() != ".pdf" or not src.exists():
         raise HTTPException(400, f"예제 PDF를 찾을 수 없습니다: {example}")
-    opts = _build_opts(auto_pages, structure_pages, assay_pages, assay_names, engine, with_coref)
+    opts = _build_opts(auto_pages, structure_pages, assay_pages, assay_names, markush)
     job_id = JM.create(src, name, opts)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -603,8 +607,7 @@ def create_job_from_patent(
     structure_pages: str = Form(""),
     assay_pages: str = Form(""),
     assay_names: str = Form(""),
-    engine: str = Form("molscribe"),
-    with_coref: str = Form(""),
+    markush: str = Form(""),
 ):
     # 특허번호/Google Patents 링크/PDF URL → PDF 다운로드 → examples/ 저장 → job 생성
     try:
@@ -617,7 +620,7 @@ def create_job_from_patent(
     # examples/ 에 보존 (다음에 드롭다운에서도 재사용 가능)
     dest = EXAMPLES_DIR / os.path.basename(fname)
     dest.write_bytes(pdf_bytes)
-    opts = _build_opts(auto_pages, structure_pages, assay_pages, assay_names, engine, with_coref)
+    opts = _build_opts(auto_pages, structure_pages, assay_pages, assay_names, markush)
     job_id = JM.create(dest, dest.name, opts)
     return RedirectResponse(url=f"/jobs/{job_id}", status_code=303)
 
@@ -816,7 +819,7 @@ def _index_html(jobs, examples):
     </div>
     <label>어세이명 <span class="hint">(비워두면 PDF에서 자동 추출 — IC50/EC50/Ki/TR-FRET 등)</span></label>
     <input type="text" name="assay_names" placeholder="자동 추출 (필요 시 직접 지정)">
-    <label><input type="checkbox" name="with_coref"> MolCoref 교차검증 (구조↔ID 연결, 느림)</label>"""
+    <label><input type="checkbox" name="markush" checked> Markush 구조 인식</label>"""
 
     return f"""<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">
 <title>PatentAgent — 특허 화합물 추출</title>
@@ -1045,6 +1048,5 @@ if __name__ == "__main__":
     args = ap.parse_args()
     print(f"PatentAgent 게이트웨이: http://localhost:{args.port}/")
     print(f"  작업 디렉토리: {JOBS_DIR}")
-    print(f"  MarkushGrapher 서비스: {MG_SERVICE_URL}")
-    print("  전제: LiteLLM 4000 / PaddleOCR 8010 / markush_service 8100 가동")
+    print(f"  추론 장치: {SETTINGS.device}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
