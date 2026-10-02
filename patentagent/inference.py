@@ -1,6 +1,7 @@
 """Local inference in the application environment, without engine subprocesses."""
 
 import gc
+import re
 
 import numpy as np
 from PIL import Image
@@ -135,8 +136,53 @@ class LocalInference:
             release_accelerator()
 
 
+# MarkushGlyph emits ``[\X]`` tokens that are not part of the cxsmiles_opt format, so
+# opt_to_standard_cxsmiles() rejects them (GLYPH_PHASE0.md section 7.1). Each replacement
+# keeps exactly one atom, so the atom indices in the trailing Sg:/m: sections stay valid.
+_ESCAPED_TOKEN_RE = re.compile(r"\[\\([^\]]+)\]")
+_CONCRETE_SUPERATOM = {"CH3": "C", "CH2": "C", "CH": "C", "OH": "O",
+                       "NH": "N", "NH2": "N", "SH": "S"}
+
+
+def repair_markush_opt(cxsmiles_opt):
+    """Rewrite non-standard ``[\\X]`` tokens; return ``(repaired_opt, tokens)``.
+
+    ``[\\*]`` is an attachment point (its index matched ``molViewConnectionPoint``
+    in 8/8 Phase 0 cases), concrete superatoms become their atom, and any other
+    label is kept as an ``<r>`` variable so no label is lost.
+    """
+    tokens = []
+
+    def sub(match):
+        label = match.group(1).strip()
+        tokens.append(match.group(0))
+        if label == "*":
+            return "<r>_AP</r>"
+        return _CONCRETE_SUPERATOM.get(label, f"<r>{label}</r>")
+
+    return _ESCAPED_TOKEN_RE.sub(sub, cxsmiles_opt), tokens
+
+
+def _try_repair(prediction):
+    from ._vendor.glyph.markush.conversion import opt_to_standard_cxsmiles
+    from .postprocess import _rdkit_canonical
+
+    repaired, tokens = repair_markush_opt(prediction.cxsmiles_opt)
+    if not tokens:
+        return None, tokens
+    try:
+        converted = opt_to_standard_cxsmiles(repaired)
+    except Exception:
+        return None, tokens
+    return (converted if _rdkit_canonical(converted)[0] is True else None), tokens
+
+
 def apply_markush_prediction(region, prediction):
-    """Retain evidence, report malformed output, and never guess chemical repairs."""
+    """Retain evidence and report malformed output.
+
+    Only the documented non-standard token rewrite is attempted; a repaired
+    structure keeps the raw output and an error entry so it is always reviewed.
+    """
     from ._vendor.glyph.markush.common import parse_stable
     from .postprocess import _rdkit_canonical
 
@@ -154,9 +200,17 @@ def apply_markush_prediction(region, prediction):
         region.markush_conversion_status = "empty"
         region.errors.append("MarkushGlyph returned no structure")
     elif prediction.conversion_error or not prediction.cxsmiles:
-        region.markush_conversion_status = "failed"
-        region.errors.append("MarkushGlyph CXSMILES conversion: "
-                             + (prediction.conversion_error or "empty conversion"))
+        error = prediction.conversion_error or "empty conversion"
+        repaired, tokens = _try_repair(prediction)
+        if repaired:
+            region.cxsmiles = repaired
+            region.markush_conversion_status = "repaired"
+            region.errors.append(
+                "MarkushGlyph non-standard tokens repaired, review required: "
+                + ", ".join(sorted(set(tokens))) + f" (original error: {error})")
+        else:
+            region.markush_conversion_status = "failed"
+            region.errors.append("MarkushGlyph CXSMILES conversion: " + error)
     elif _rdkit_canonical(prediction.cxsmiles)[0] is not True:
         region.markush_conversion_status = "invalid"
         region.errors.append("MarkushGlyph converted CXSMILES does not parse")

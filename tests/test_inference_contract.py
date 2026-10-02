@@ -36,8 +36,8 @@ def test_markush_preserves_raw_labels_and_substituent_table():
     assert assemble([result], [], {})[0]["markush_metadata"]["substituents"] == result.substituents
 
 
-@pytest.mark.parametrize("value", [r"[\*]CC", r"C[\CH3]", "not-a-structure"])
-def test_conversion_failure_is_reviewable_and_never_repaired(value):
+@pytest.mark.parametrize("value", ["not-a-structure", r"C1[\CH3]"])
+def test_conversion_failure_is_reviewable(value):
     raw = f"<markush><cxsmi>{value}</cxsmi><stable></stable></markush>"
     prediction = MarkushPrediction.from_raw("test.png", raw)
     result = region()
@@ -51,6 +51,25 @@ def test_conversion_failure_is_reviewable_and_never_repaired(value):
     row = assemble([result], [], {})[0]
     assert row["confidence"] == "low"
     assert row["extraction_errors"]
+
+
+@pytest.mark.parametrize("value,expected", [
+    (r"[\*]CC", "*CC |$_AP;;$|"),
+    (r"C[\CH3]", "CC"),
+    (r"<r>Q</r>N([\CH3])C[\R5]", "*N(C)C* |$Q;;;;R5$|"),
+])
+def test_nonstandard_tokens_are_repaired_but_reviewable(value, expected):
+    raw = f"<markush><cxsmi>{value}</cxsmi><stable></stable></markush>"
+    prediction = MarkushPrediction.from_raw("test.png", raw)
+    result = region()
+    apply_markush_prediction(result, prediction)
+    assert result.markush_raw == raw
+    assert result.cxsmiles_opt == value
+    assert result.cxsmiles == expected
+    assert result.markush_conversion_status == "repaired"
+    assert any("repaired" in error and "ValueError" in error for error in result.errors)
+    row = assemble([result], [], {})[0]
+    assert row["confidence"] == "low"
 
 
 def test_empty_and_truncated_outputs_are_flagged():
